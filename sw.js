@@ -1,13 +1,20 @@
 // sw.js
+self.addEventListener('message', (event) => {
+    if (event.data.type === 'SCHEDULE_NOTIFY') {
+        const { title, body, delay } = event.data;
+        
+        // 指定時間後に通知を出す（SWが生きていれば閉じても動く）
+        setTimeout(() => {
+            self.registration.showNotification(title, {
+                body: body,
+                icon: 'https://ntv142.github.io/NT-HP/favicon.ico',
+                requireInteraction: true
+            });
+        }, delay);
+    }
+});
+
 self.addEventListener('notificationclick', (event) => {
     event.notification.close();
-    let targetUrl = event.notification.data ? event.notification.data.url : '/';
-    event.waitUntil(
-        clients.matchAll({ type: 'window' }).then((clientList) => {
-            for (const client of clientList) {
-                if (client.url === targetUrl && 'focus' in client) return client.focus();
-            }
-            if (clients.openWindow) return clients.openWindow(targetUrl);
-        })
-    );
+    event.waitUntil(clients.openWindow('https://ntv142.github.io/POPv2/'));
 });
