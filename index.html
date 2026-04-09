@@ -1,0 +1,150 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NT Super Notify v3.2</title>
+    <style>
+        :root { --base-size: 24px; --sub-size: 18px; --accent: #007bff; }
+        body { font-size: var(--base-size); padding: 15px; font-family: sans-serif; background: #f8f9fa; color: #333; }
+        .container { max-width: 600px; margin: 0 auto; }
+        .tabs-nav { display: flex; gap: 5px; }
+        .tab-btn { flex: 1; padding: 12px; background: #ccc; cursor: pointer; border-radius: 10px 10px 0 0; font-size: var(--sub-size); border: none; }
+        .tab-btn.active { background: white; color: var(--accent); font-weight: bold; border-bottom: 3px solid var(--accent); }
+        .content { display: none; background: white; padding: 20px; border-radius: 0 0 10px 10px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+        .content.active { display: block; }
+        label { display: block; margin-top: 10px; font-size: 16px; color: #666; }
+        input, textarea { width: 100%; font-size: var(--base-size); margin-bottom: 10px; border: 2px solid #ddd; border-radius: 8px; padding: 8px; box-sizing: border-box; }
+        button.main-btn { width: 100%; padding: 15px; font-size: var(--base-size); border: none; border-radius: 8px; cursor: pointer; background: var(--accent); color: white; margin-top: 10px; }
+        .btn-clear { background: #6c757d; color: white; margin: 20px 0; font-size: var(--sub-size); width: 100%; padding: 10px; border: none; border-radius: 8px; }
+        #list { margin-top: 10px; }
+        .item { font-size: var(--sub-size); padding: 12px; border-bottom: 1px solid #eee; display: flex; justify-content: space-between; background: white; align-items: center; }
+        .status-ready { border-left: 5px solid var(--accent); }
+        .status-done { color: #999; border-left: 5px solid #28a745; background: #f0f0f0; }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <div class="tabs-nav">
+        <button class="tab-btn active" onclick="changeTab(event, 'normal')">通常予約</button>
+        <button class="tab-btn" onclick="changeTab(event, 'burst')">連射モード</button>
+    </div>
+
+    <div id="normal" class="content active">
+        <label>件名</label><input type="text" id="title" placeholder="通知タイトル">
+        <label>内容</label><textarea id="task" rows="2" placeholder="通知本文"></textarea>
+        <label>通知日時</label><input type="datetime-local" id="alarmTime" step="1">
+        <button class="main-btn" onclick="reserve()">予約を実行</button>
+    </div>
+
+    <div id="burst" class="content">
+        <label>件名</label><input type="text" id="bTitle" placeholder="連射タイトル">
+        <label>間隔（秒）</label><input type="number" id="interval" value="3">
+        <label>回数</label><input type="number" id="count" value="5">
+        <button class="main-btn" style="background: #dc3545;" onclick="burst()">連射スタート</button>
+    </div>
+
+    <button class="btn-clear" onclick="clearLogs()">履歴を全消去</button>
+    <div id="list"></div>
+</div>
+
+<script>
+    const CLICK_URL = 'https://ntv142.github.io/POPv2/';
+    const ICON = 'https://ntv142.github.io/NT-HP/favicon.ico';
+
+    if ('serviceWorker' in navigator) {
+        navigator.serviceWorker.register('sw.js?url=' + encodeURIComponent(CLICK_URL));
+    }
+
+    function changeTab(e, tabName) {
+        document.querySelectorAll('.content').forEach(c => c.classList.remove('active'));
+        document.querySelectorAll('.tab-btn').forEach(t => t.classList.remove('active'));
+        document.getElementById(tabName).classList.add('active');
+        e.currentTarget.classList.add('active');
+    }
+
+    // データの読み込み
+    window.onload = () => {
+        const logs = JSON.parse(localStorage.getItem('nt_logs') || '[]');
+        logs.forEach(log => addLogUI(log.id, log.msg, log.done));
+        resetTime();
+    };
+
+    function saveLog(id, msg) {
+        const logs = JSON.parse(localStorage.getItem('nt_logs') || '[]');
+        logs.push({id, msg, done: false});
+        localStorage.setItem('nt_logs', JSON.stringify(logs));
+    }
+
+    function updateLogStatus(id) {
+        const logs = JSON.parse(localStorage.getItem('nt_logs') || '[]');
+        const target = logs.find(l => l.id === id);
+        if(target) target.done = true;
+        localStorage.setItem('nt_logs', JSON.stringify(logs));
+        const el = document.getElementById(id);
+        if(el) { el.className = 'item status-done'; el.lastChild.innerText = '完了'; }
+    }
+
+    function clearLogs() {
+        localStorage.removeItem('nt_logs');
+        document.getElementById('list').innerHTML = '';
+    }
+
+    function addLogUI(id, msg, isDone) {
+        const list = document.getElementById('list');
+        const div = document.createElement('div');
+        div.id = id;
+        div.className = isDone ? 'item status-done' : 'item status-ready';
+        div.innerHTML = `<span>${msg}</span><span>${isDone ? '完了' : '待機中'}</span>`;
+        list.prepend(div);
+    }
+
+    async function sendNotify(t, b) {
+        const reg = await navigator.serviceWorker.ready;
+        reg.showNotification(t, { body: b, icon: ICON, requireInteraction: true, data: { url: CLICK_URL } });
+    }
+
+    function reserve() {
+        const t = document.getElementById('title').value || 'NT通知';
+        const b = document.getElementById('task').value;
+        const target = new Date(document.getElementById('alarmTime').value);
+        const diff = target.getTime() - Date.now();
+        const id = 'n-' + Date.now();
+        if (isNaN(target.getTime()) || diff <= 0) return alert('未来の時間を指定してね');
+
+        const msg = `${target.toLocaleTimeString()}：${t}`;
+        addLogUI(id, msg, false);
+        saveLog(id, msg);
+
+        setTimeout(() => {
+            sendNotify(t, b);
+            updateLogStatus(id);
+        }, diff);
+    }
+
+    function burst() {
+        const t = document.getElementById('bTitle').value || '連射';
+        const sec = document.getElementById('interval').value * 1000;
+        const max = document.getElementById('count').value;
+
+        for (let i = 1; i <= max; i++) {
+            const id = 'b-' + Date.now() + '-' + i;
+            const msg = `連射 ${i}/${max}`;
+            setTimeout(() => {
+                addLogUI(id, msg, false);
+                saveLog(id, msg);
+                sendNotify(`${t} ${i}/${max}`, `${i}回目の通知`);
+                setTimeout(() => updateLogStatus(id), 500);
+            }, i * sec);
+        }
+    }
+
+    function resetTime() {
+        const d = new Date();
+        d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
+        document.getElementById('alarmTime').value = d.toISOString().slice(0, 19);
+    }
+</script>
+</body>
+</html>
