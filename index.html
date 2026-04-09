@@ -3,54 +3,68 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <link rel="manifest" href="./manifest.json">
+    
+    <link rel="manifest" href="manifest.json">
     <meta name="theme-color" content="#007bff">
-    <title>NT Super Notify v3.5</title>
+    <link rel="apple-touch-icon" href="https://ntv142.github.io/NT-HP/favicon.ico">
+
+    <title>NT Super Notify v3.6</title>
     <style>
         :root { --base-size: 24px; --sub-size: 18px; --accent: #007bff; }
-        body { font-size: var(--base-size); padding: 15px; font-family: sans-serif; background: #f8f9fa; }
+        body { font-size: var(--base-size); padding: 15px; font-family: sans-serif; background: #f8f9fa; color: #333; }
         .container { max-width: 600px; margin: 0 auto; }
         .tabs-nav { display: flex; gap: 5px; }
         .tab-btn { flex: 1; padding: 12px; background: #ccc; cursor: pointer; border-radius: 10px 10px 0 0; font-size: var(--sub-size); border: none; }
         .tab-btn.active { background: white; color: var(--accent); font-weight: bold; border-bottom: 3px solid var(--accent); }
         .content { display: none; background: white; padding: 20px; border-radius: 0 0 10px 10px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
         .content.active { display: block; }
+        label { display: block; margin-top: 10px; font-size: 16px; color: #666; }
         input, textarea { width: 100%; font-size: var(--base-size); margin-bottom: 10px; border: 2px solid #ddd; border-radius: 8px; padding: 8px; box-sizing: border-box; }
-        button.main-btn { width: 100%; padding: 15px; font-size: var(--base-size); border: none; border-radius: 8px; cursor: pointer; background: var(--accent); color: white; }
-        .item { font-size: var(--sub-size); padding: 12px; border-bottom: 1px solid #eee; display: flex; justify-content: space-between; background: white; }
+        button.main-btn { width: 100%; padding: 15px; font-size: var(--base-size); border: none; border-radius: 8px; cursor: pointer; background: var(--accent); color: white; margin-top: 10px; }
+        .item { font-size: var(--sub-size); padding: 12px; border-bottom: 1px solid #eee; display: flex; justify-content: space-between; background: white; align-items: center; border-left: 5px solid var(--accent); }
     </style>
 </head>
 <body>
+
 <div class="container">
     <div class="tabs-nav">
         <button class="tab-btn active" onclick="changeTab(event, 'normal')">通常予約</button>
         <button class="tab-btn" onclick="changeTab(event, 'burst')">連射</button>
     </div>
+
     <div id="normal" class="content active">
-        <input type="text" id="title" placeholder="件名">
-        <textarea id="task" rows="2" placeholder="内容"></textarea>
-        <input type="datetime-local" id="alarmTime" step="1">
-        <button class="main-btn" onclick="reserve()">予約</button>
+        <label>件名</label><input type="text" id="title" placeholder="通知タイトル">
+        <label>内容</label><textarea id="task" rows="2" placeholder="通知本文"></textarea>
+        <label>通知日時</label><input type="datetime-local" id="alarmTime" step="1">
+        <button class="main-btn" onclick="reserve()">予約を実行</button>
     </div>
+
     <div id="burst" class="content">
-        <input type="number" id="interval" value="3">秒間隔
-        <input type="number" id="count" value="5">回
-        <button class="main-btn" style="background: #dc3545;" onclick="burst()">連射</button>
+        <label>間隔（秒）</label><input type="number" id="interval" value="3">
+        <label>回数</label><input type="number" id="count" value="5">
+        <button class="main-btn" style="background: #dc3545;" onclick="burst()">連射スタート</button>
     </div>
+
     <div id="list"></div>
 </div>
+
 <script>
     const CLICK_URL = 'https://ntv142.github.io/POPv2/';
-    window.addEventListener('load', () => {
-        if ('serviceWorker' in navigator) {
-            navigator.serviceWorker.register('./sw.js');
-        }
-        resetTime();
-    });
 
-    function changeTab(e, n) {
+    // Service Workerの登録（パスを ./sw.js に固定）
+    if ('serviceWorker' in navigator) {
+        window.addEventListener('load', () => {
+            navigator.serviceWorker.register('./sw.js')
+            .then(reg => console.log('SW登録成功'))
+            .catch(err => console.error('SW登録失敗', err));
+        });
+    }
+
+    function changeTab(e, tabName) {
         document.querySelectorAll('.content').forEach(c => c.classList.remove('active'));
-        document.getElementById(n).classList.add('active');
+        document.querySelectorAll('.tab-btn').forEach(t => t.classList.remove('active'));
+        document.getElementById(tabName).classList.add('active');
+        e.currentTarget.classList.add('active');
     }
 
     async function reserve() {
@@ -58,23 +72,23 @@
         const b = document.getElementById('task').value;
         const target = new Date(document.getElementById('alarmTime').value).getTime();
         const diff = target - Date.now();
+        
         if (diff <= 0) return alert('未来を指定してね');
 
-        // Service Workerへ「通知予約」のメッセージを送る
+        // Service Workerへメッセージ送信
         const reg = await navigator.serviceWorker.ready;
         reg.active.postMessage({ type: 'SCHEDULE_NOTIFY', title: t, body: b, delay: diff });
-        
+
         const div = document.createElement('div');
         div.className = 'item';
-        div.innerHTML = `<span>${t}</span><span>予約済</span>`;
+        div.innerHTML = `<span>${new Date(target).toLocaleTimeString()}：${t}</span><span>予約済</span>`;
         document.getElementById('list').prepend(div);
     }
 
-    function resetTime() {
-        const d = new Date();
-        d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
-        document.getElementById('alarmTime').value = d.toISOString().slice(0, 19);
-    }
+    // 現在時刻セット
+    const d = new Date();
+    d.setMinutes(d.getMinutes() - d.getTimezoneOffset());
+    document.getElementById('alarmTime').value = d.toISOString().slice(0, 19);
 </script>
 </body>
 </html>
