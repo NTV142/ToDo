@@ -7,8 +7,7 @@
     <meta name="theme-color" content="#007bff">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <link rel="apple-touch-icon" href="https://ntv142.github.io/NT-HP/favicon.ico">
-    
-    <title>NT Super Notify v3.3</title>
+    <title>NT Super Notify v3.4</title>
     <style>
         :root { --base-size: 24px; --sub-size: 18px; --accent: #007bff; }
         body { font-size: var(--base-size); padding: 15px; font-family: sans-serif; background: #f8f9fa; color: #333; }
@@ -58,15 +57,10 @@
     const CLICK_URL = 'https://ntv142.github.io/POPv2/';
     const ICON = 'https://ntv142.github.io/NT-HP/favicon.ico';
 
-    // Service Worker登録をLoad後に実行
     window.addEventListener('load', () => {
         if ('serviceWorker' in navigator) {
-            navigator.serviceWorker.register('./sw.js?url=' + encodeURIComponent(CLICK_URL))
-            .then(reg => console.log('SW Registered'))
-            .catch(err => console.error('SW Error', err));
+            navigator.serviceWorker.register('./sw.js?url=' + encodeURIComponent(CLICK_URL));
         }
-        
-        // データの復元
         const logs = JSON.parse(localStorage.getItem('nt_logs') || '[]');
         logs.forEach(log => addLogUI(log.id, log.msg, log.done));
         resetTime();
@@ -109,27 +103,47 @@
         list.prepend(div);
     }
 
-    async function sendNotify(t, b) {
+    // ★改良点：通知トリガーを使用した送信
+    async function scheduleNotify(t, b, timestamp, id) {
         const reg = await navigator.serviceWorker.ready;
-        reg.showNotification(t, { body: b, icon: ICON, requireInteraction: true, data: { url: CLICK_URL } });
+        
+        // ブラウザがトリガーに対応しているか確認
+        if ('showTrigger' in Notification.prototype) {
+            reg.showNotification(t, {
+                body: b,
+                icon: ICON,
+                requireInteraction: true,
+                data: { url: CLICK_URL },
+                showTrigger: new TimestampTrigger(timestamp) // ここでOSに予約
+            });
+        } else {
+            // 非対応ブラウザ（古いAndroidなど）は従来のタイマー
+            const diff = timestamp - Date.now();
+            setTimeout(() => {
+                reg.showNotification(t, { body: b, icon: ICON, data: { url: CLICK_URL } });
+                updateLogStatus(id);
+            }, diff);
+        }
     }
 
     function reserve() {
         const t = document.getElementById('title').value || 'NT通知';
         const b = document.getElementById('task').value;
         const target = new Date(document.getElementById('alarmTime').value);
-        const diff = target.getTime() - Date.now();
+        const timestamp = target.getTime();
         const id = 'n-' + Date.now();
-        if (isNaN(target.getTime()) || diff <= 0) return alert('未来を指定してね');
+        
+        if (isNaN(timestamp) || (timestamp - Date.now()) <= 0) return alert('未来を指定してね');
 
         const msg = `${target.toLocaleTimeString()}：${t}`;
         addLogUI(id, msg, false);
         saveLog(id, msg);
 
-        setTimeout(() => {
-            sendNotify(t, b);
-            updateLogStatus(id);
-        }, diff);
+        scheduleNotify(t, b, timestamp, id);
+        if ('showTrigger' in Notification.prototype) {
+             // トリガー対応なら即「完了」にはせず、OS側に任せたことを示す（今回は簡易的に500ms後に更新）
+             setTimeout(() => updateLogStatus(id), 1000);
+        }
     }
 
     function burst() {
@@ -139,12 +153,11 @@
         for (let i = 1; i <= max; i++) {
             const id = 'b-' + Date.now() + '-' + i;
             const msg = `連射 ${i}/${max}`;
-            setTimeout(() => {
-                addLogUI(id, msg, false);
-                saveLog(id, msg);
-                sendNotify(`${t} ${i}/${max}`, `${i}回目の通知`);
-                setTimeout(() => updateLogStatus(id), 500);
-            }, i * sec);
+            const time = Date.now() + (i * sec);
+            addLogUI(id, msg, false);
+            saveLog(id, msg);
+            scheduleNotify(`${t} ${i}/${max}`, `${i}回目の通知`, time, id);
+            setTimeout(() => updateLogStatus(id), (i * sec) + 500);
         }
     }
 
@@ -156,4 +169,3 @@
 </script>
 </body>
 </html>
-
